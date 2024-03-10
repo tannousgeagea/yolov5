@@ -38,13 +38,8 @@ class Detect(nn.Module):
         
         # x shape: (N, 80 x 80 x 256) / (N, 40 x 40 x 512) / (N, 20 x 20 x 1024)
         for i in range(self.nl):
-
             x[i] = self.m[i](x[i]) # convolution
-
-            # x shape : (N, 255 x 80 x 80) / (N, 255 x 40 x 40) / (N, 255 x 20 x 20)
-            batch_size, _, ny, nx = x[i].shape
-
-            # 
+            batch_size, _, ny, nx = x[i].shape # x shape : (N, 255 x 80 x 80) / (N, 255 x 40 x 40) / (N, 255 x 20 x 20)
             x[i] = x[i].view(batch_size, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
 
         return x
@@ -121,9 +116,6 @@ class YOLOv5(nn.Module):
 
         return x
 
-
-
-
     def parse_module(self, configurations):
         layers = nn.ModuleList()
         in_channels = self.in_channels
@@ -175,7 +167,7 @@ class YOLOv5(nn.Module):
 
 
 if __name__ == "__main__":
-    x = torch.randn((2, 3, 640, 640))
+    x = torch.randn((2, 3, 480, 640))
     model = YOLOv5(in_channels=3)
     out = model(x)
 

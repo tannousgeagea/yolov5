@@ -202,3 +202,61 @@ class Concat(nn.Module):
 
     def forward(self, x):
         return torch.cat(x, self.d)
+
+
+class DetectBackend(nn.Module):
+    def __init__(self, model, anchors):
+        super(DetectBackend, self).__init__()
+        self.model = model
+        self.anchors = anchors
+        self.na = len(anchors[0])
+        self.stride = [8, 16, 32]
+
+    def forward(self, x):
+        x = self.model(x)
+        nl = len(x)
+        self.grid = [torch.empty(0) for _ in range(nl)]
+        self.anchor_grid = [torch.empty(0) for _ in range(nl)]
+
+        z = []  # inference output
+        for i in range(nl):
+            bs, na, ny, nx, no = x[i].shape
+            nc = no - 5
+            self.grid[i], self.anchor_grid[i] = self._make_grid(nx=nx, ny=ny, i=i)
+            pxy, pwh, conf = x[i].sigmoid().split((2, 2, nc + 1), -1)  # torch.Size([bs, na, grid_Y, grid_X, 5 + nc])
+            pxy = (pxy * 2 + self.grid[i]) * self.stride[i]
+            pwh = (pwh * 2) ** 2 * self.anchor_grid[i]
+            y = torch.cat((pxy, pwh, conf), dim=-1)
+            z.append(y.view(bs, na * nx * ny, no))
+            
+        return torch.cat(z, 1), x
+
+    def _make_grid(self, nx=20, ny=20, i=0):
+        """Generates a mesh grid for anchor boxes with optional compatibility for torch versions < 1.10."""
+        d = self.anchors[i].device
+        t = self.anchors[i].dtype
+        shape = 1, self.na, ny, nx, 2  # grid shape
+        y, x = torch.arange(ny, device=d, dtype=t), torch.arange(nx, device=d, dtype=t)
+        yv, xv = torch.meshgrid(y, x, indexing="ij")
+        grid = torch.stack((xv, yv), 2).expand(shape) - 0.5  # add grid offset, i.e. y = 2.0 * x - 0.5
+        anchor_grid = (self.anchors[i] * self.stride[i]).view((1, self.na, 1, 1, 2)).expand(shape)
+        return grid, anchor_grid
+
+
+if __name__ == "__main__":
+    x = torch.randn((2, 3, 480, 640))
+
+    from model import YOLOv5
+    model = YOLOv5(in_channels=3)
+    out = model(x)
+
+    print(f"Scale 1: {out[0].shape}")
+    print(f"Scale 2: {out[1].shape}")
+    print(f"Scale 3: {out[2].shape}")
+
+
+    anchors = torch.load('./assets/anchors.pt')
+    inf = DetectBackend(model, anchors)
+    pred = inf(x)
+
+    print(pred[0].shape)
