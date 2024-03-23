@@ -5,12 +5,10 @@ from metrics import box_iou
 
 class Loss(nn.Module):
     sort_obj_iou = False
-    def __init__(self, anchors):
+    def __init__(self):
         super(Loss, self).__init__()
-        self.anchors = anchors
-        self.na = len(anchors)
         self.anchor_t = 4.0
-        self.nc = 2
+        self.nc = 10
         self.gr = 1.0
         self.bce = nn.BCEWithLogitsLoss()
         self.entropy = nn.CrossEntropyLoss()
@@ -35,36 +33,46 @@ class Loss(nn.Module):
         tobj = torch.zeros(pred.shape[:4], dtype=pred.dtype, device=pred.device)
         indices, tcls, tbox, anch = self.build_targets(pred, targets, anchors)
         b, a, gj, gi = indices
-        pxy, pwh, _, pcls = pred[b, a, gj, gi].split((2, 2, 1, self.nc), dim=1)
+        
+        if b.shape[0]:
+            pxy, pwh, _, pcls = pred[b, a, gj, gi].split((2, 2, 1, self.nc), dim=1)
 
-        ### localization loss ###
-        pxy = pxy.sigmoid() * 2 - 0.5
-        pwh = (2 * pwh.sigmoid()) ** 2 * anch
-        pbox = torch.cat((pxy, pwh), 1)
-        iou = box_iou(pbox, tbox, xywh=True, CIoU=True)
-        lbox += (1.0 - iou).mean()
+            ### localization loss ###
+            pxy = pxy.sigmoid() * 2 - 0.5
+            pwh = (2 * pwh.sigmoid()) ** 2 * anch
+            pbox = torch.cat((pxy, pwh), 1)
+            
+            iou = box_iou(pbox, tbox, xywh=True, CIoU=True)
+            lbox += (1.0 - iou).mean()
+            
+            # print(f'lbox: {lbox}')
 
-        ### objectness loss ###
-        """
-        Detaches the IoU tensor from the current computation graph, 
-        ensuring that the IoU scores are not involved in gradient computation. 
-        This is necessary because we're using IoU scores for adjusting loss, not for backpropagation
-        """
-        iou = iou.detach().clamp(0).type(tobj.dtype)
-        if self.sort_obj_iou:
-            j = iou.argsort()
-            b, a, gj, gi, iou = b[j], a[j], gj[j], gi[j], iou[j]
-        if self.gr < 1:  # adjusts the IoU scores based on the gradient reduction 
-            iou = (1.0 - self.gr) + iou * self.gr
-        tobj[b, a, gj, gi] = iou.squeeze()
-        lobj += self.bce(pred[..., 4], tobj)
+            ### objectness loss ###
+            """
+            Detaches the IoU tensor from the current computation graph, 
+            ensuring that the IoU scores are not involved in gradient computation. 
+            This is necessary because we're using IoU scores for adjusting loss, not for backpropagation
+            """
+            iou = iou.detach().clamp(0).type(tobj.dtype)
+            if self.sort_obj_iou:
+                j = iou.argsort()
+                b, a, gj, gi, iou = b[j], a[j], gj[j], gi[j], iou[j]
+            if self.gr < 1:  # adjusts the IoU scores based on the gradient reduction 
+                iou = (1.0 - self.gr) + iou * self.gr
+            tobj[b, a, gj, gi] = iou.squeeze()
+            lobj += self.bce(pred[..., 4], tobj)
 
-        ### Classification ###
-        n = b.shape[0]
-        t = torch.full_like(pcls, self.cn, device=pcls.device)
-        t[range(n), tcls] = self.cp
-        lcls += self.bce(pcls, t)
+            ### Classification ###
+            n = b.shape[0]
+            t = torch.full_like(pcls, self.cn, device=pcls.device)
+            t[range(n), tcls] = self.cp
+            lcls += self.bce(pcls, t)
 
+        # print(f'Lbox: {lbox}')
+        # print(f'Lcls: {lcls}')
+        # print(f'Lobj: {lobj}')
+        
+        # print(f"Loss: {(lbox + lcls + lobj) * bs}")
         return (lbox + lcls + lobj) * bs, torch.cat((lbox, lcls, lobj)).detach() 
  
         

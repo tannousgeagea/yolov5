@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 VALID_FOMAT = ['jpeg', 'jpg', 'png']
 
 class Dataset:
-    def __init__(self, path, mode, nc=20, imgsz=480, transform=None):
+    def __init__(self, path, mode, nc=20, imgsz=640, transform=None):
         self.path = path
         self.mode = mode
         self.img_size = imgsz

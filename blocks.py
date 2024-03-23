@@ -243,20 +243,94 @@ class DetectBackend(nn.Module):
         return grid, anchor_grid
 
 
+def draw_bounding_boxes(image, boxes):
+    """
+    Draws bounding boxes on the image.
+    
+    Args:
+    - image: The image on which to draw, as a NumPy array.
+    - boxes: A list of boxes, each box is a list of [x_center, y_center, width, height],
+             with values normalized between 0 and 1.
+    
+    Returns:
+    - The image with bounding boxes drawn on it.
+    """
+    # Get the dimensions of the image
+    import cv2
+    height, width, _ = image.shape
+    
+    image = (image * 255).astype('uint8')
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)    
+    for box in boxes:    
+        xmin, ymin, xmax, ymax = box
+        xmin, ymin, xmax, ymax = int(xmin * width), int(ymin * height), int(xmax * width), int(ymax * height)
+        
+        print(xmin, ymin, xmax, ymax)
+        # Draw the rectangle on the image
+        cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (255, 0, 0), 2)
+    
+    return image
+
+
 if __name__ == "__main__":
-    x = torch.randn((2, 3, 480, 640))
-
+    from utils import load_model, xywh2xyxy
+    import matplotlib.pyplot as plt
+    
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    # device = 'cpu'
     from model import YOLOv5
-    model = YOLOv5(in_channels=3)
-    out = model(x)
-
-    print(f"Scale 1: {out[0].shape}")
-    print(f"Scale 2: {out[1].shape}")
-    print(f"Scale 3: {out[2].shape}")
+    model = YOLOv5(in_channels=3).to(device)
+    load_model(model=model, checkpoint_file='./assets/yolov5.pt')
 
 
+    from dataset import Dataset
+    data = Dataset(
+        path='/home/appuser/data/animals.v2-release.yolov5pytorch',
+        mode='valid',
+        imgsz=640,
+    )
+    
+    dataloader = torch.utils.data.DataLoader(data, batch_size=2, collate_fn=data.collate_fn)
     anchors = torch.load('./assets/anchors.pt')
+    S = torch.tensor([8, 16, 32]).view(-1, 1, 1)
+    anchors = anchors
+    anchors = anchors.to(device)
     inf = DetectBackend(model, anchors)
-    pred = inf(x)
+        
+    for x, _ in dataloader:
+        images = x.permute(0, 2, 3, 1).cpu().numpy()
+        x = x.to(device)
+        
+        with torch.no_grad():
+            pred = inf(x)
+        
+        prediction = pred[0]
+        bs = prediction.shape[0]  # batch size
+        nc = prediction.shape[2] - 5  # number of classes
+        xc = prediction[..., 4] > 0.25  # candidates
+        
+        for xi, x in enumerate(prediction):
+            
+            x = x[xc[xi]]
+            
+            x[:, 5:] *= x[:, 4:5]
+            box = xywh2xyxy(x[:, :4])
+            
+            conf, j = x[:, 5:].max(1, keepdims=True)
+            x = torch.cat([box, conf, j.float()], -1)[conf.view(-1) > 0.25]
+            
+            # print(x)
+            image = draw_bounding_boxes(image=images[xi], boxes=x[:, :4])
+            
+            plt.imshow(image)
+            plt.show()
+            
+        
 
-    print(pred[0].shape)
+        
+        
+        break
+        
+
+    

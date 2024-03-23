@@ -15,7 +15,7 @@ anchors = [
     [(116, 90), (156, 198), (373, 326)] # P5/32
 ]
 
-nc = 20
+nc = 10
 
 
 
@@ -80,7 +80,6 @@ architecture = [
     # detect
     [[17, 20, 23], 1, Detect, [nc, anchors]]
 ]
-
 
 
 class YOLOv5(nn.Module):
